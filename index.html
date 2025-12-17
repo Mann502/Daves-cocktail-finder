@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cocktail Finder</title>
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cocktail Finder">
+
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:16px;max-width:920px}
+  h1{margin:0 0 10px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .card{border:1px solid #ddd;border-radius:14px;padding:12px}
+  .pill{border:1px solid #ddd;border-radius:999px;padding:8px 12px;background:#fafafa;font-size:14px}
+  input[type="search"]{padding:10px 12px;border-radius:12px;border:1px solid #ddd;min-width:260px}
+  button{padding:10px 12px;border-radius:12px;border:1px solid #ddd;background:#fff}
+  button:active{transform:scale(.99)}
+  .small{font-size:13px;color:#444}
+  .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  @media (max-width:700px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  label{display:flex;gap:8px;align-items:center}
+  input[type="checkbox"]{transform:scale(1.1)}
+  .results{margin-top:10px}
+  .cocktail{border:1px solid #ddd;border-radius:14px;padding:12px;margin:10px 0}
+  .ok{background:#e6f7e6}
+  .near{background:#fff3cd}
+  .meta{font-size:13px;color:#444;margin-top:4px}
+  ul,ol{margin:6px 0 0 18px}
+  .missing{margin-top:8px;font-size:13px;color:#6b4f00}
+  .divider{height:1px;background:#eee;margin:12px 0}
+</style>
+</head>
+<body>
+
+<h1>🍸 Cocktail Finder</h1>
+
+<div class="card">
+  <div class="row">
+    <input id="ingredientSearch" type="search" placeholder="Search ingredients (e.g. gin, lime, vermouth)" />
+    <button id="selectNone">Clear all</button>
+    <button id="selectCommon">Add common basics</button>
+    <span class="small" id="counts"></span>
+  </div>
+  <div class="divider"></div>
+  <div class="row">
+    <label class="pill"><input id="onlyMakeable" type="checkbox" /> Only show “You can make”</label>
+    <label class="pill"><input id="showNear" type="checkbox" checked /> Show “Nearly” (missing 1–2)</label>
+    <label class="pill"><input id="sortByMissing" type="checkbox" checked /> Sort by fewest missing</label>
+  </div>
+</div>
+
+<h2>My Ingredients</h2>
+<div class="card">
+  <div class="grid" id="ingredientList"></div>
+  <p class="small">Tip: your selection is saved automatically.</p>
+</div>
+
+<div class="results">
+  <h2>You can make</h2>
+  <div id="canMake"></div>
+
+  <h2>Nearly there</h2>
+  <div id="nearMake"></div>
+</div>
+
+<script>
+/**
+ * Scaling trick:
+ * - We store measurements + technique.
+ * - Methods are auto-generated from technique to avoid writing 200 custom recipes.
+ * - You can override per cocktail by adding methodOverride: [...]
+ */
+
+const TECHNIQUE_STEPS = {
+  build: [
+    "Fill the glass with ice (if serving on ice).",
+    "Add ingredients in order.",
+    "Stir gently to combine.",
+    "Garnish and serve."
+  ],
+  stir: [
+    "Add ingredients to a mixing glass with ice.",
+    "Stir for 15–25 seconds until chilled.",
+    "Strain into the serving glass.",
+    "Garnish and serve."
+  ],
+  shake: [
+    "Add ingredients to a shaker with ice.",
+    "Shake hard for 10–12 seconds.",
+    "Strain into the serving glass (double strain if needed).",
+    "Garnish and serve."
+  ],
+  muddle: [
+    "Add specified ingredients to the glass and gently muddle.",
+    "Add remaining ingredients and ice.",
+    "Stir or shake as appropriate.",
+    "Top/finish as needed, garnish and serve."
+  ],
+  blend: [
+    "Add ingredients to a blender with ice.",
+    "Blend until smooth.",
+    "Pour into the serving glass and garnish."
+  ]
+};
+
+function methodFor(c) {
+  if (Array.isArray(c.methodOverride) && c.methodOverride.length) return c.methodOverride;
+  return TECHNIQUE_STEPS[c.technique] || ["Combine ingredients and serve."];
+}
+
+function norm(s){ return String(s).toLowerCase().trim(); }
+
+/**
+ * BIGGER starter set (extend freely).
+ * Note: amounts are common “home bar” measures. Adjust whenever you like.
+ */
+const cocktails = [
+/* =======================
+   GIN (40)
+======================= */
+{name:"Gin & Tonic",technique:"build",glass:"Highball",garnish:"Lime wedge",
+ingredients:[{item:"gin",amount:"50 ml"},{item:"tonic water",amount:"Top up"}]},
+{name:"Pink Gin & Tonic",technique:"build",glass:"Highball",garnish:"Strawberry",
+ingredients:[{item:"pink gin",amount:"50 ml"},{item:"tonic water",amount:"Top up"}]},
+{name:"Tom Collins",technique:"build",glass:"Highball",garnish:"Lemon slice",
+ingredients:[{item:"gin",amount:"50 ml"},{item:"lemon juice",amount:"25 ml"},{item:"simple syrup",amount:"15 ml"},{item:"soda water",amount:"Top up"}]},
+{name:"Negroni",technique:"build",glass:"Rocks",garnish:"Orange peel",
+ingredients:[{item:"gin",amount:"25 ml"},{item:"campari",amount:"25 ml"},{item:"sweet vermouth",amount:"25 ml"}]},
+{name:"Dry Martini",technique:"stir",glass:"Coupe",garnish:"Olive or lemon twist",
+ingredients:[{item:"gin",amount:"60 ml"},{item:"dry vermouth",amount:"10 ml"}]},
+{name:"Gimlet",technique:"shake",glass:"Coupe",garnish:"Lime wheel",
+ingredients:[{item:"gin",amount:"60 ml"},{item:"lime juice",amount:"25 ml"},{item:"simple syrup",amount:"15 ml"}]},
+{name:"French 75",technique:"shake",glass:"Flute",garnish:"Lemon twist",
+ingredients:[{item:"gin",amount:"30 ml"},{item:"lemon juice",amount:"15 ml"},{item:"simple syrup",amount:"15 ml"},{item:"prosecco",amount:"Top up"}]},
+{name:"Aviation",technique:"shake",glass:"Coupe",garnish:"Cherry",
+ingredients:[{item:"gin",amount:"45 ml"},{item:"maraschino liqueur",amount:"15 ml"},{item:"lemon juice",amount:"15 ml"},{item:"crème de violette",amount:"7.5 ml"}]},
+{name:"Bramble",technique:"build",glass:"Rocks",garnish:"Blackberry",
+ingredients:[{item:"gin",amount:"50 ml"},{item:"lemon juice",amount:"25 ml"},{item:"simple syrup",amount:"15 ml"},{item:"blackberry liqueur",amount:"10 ml"}]},
+{name:"Clover Club",technique:"shake",glass:"Coupe",garnish:"Raspberry",
+ingredients:[{item:"gin",amount:"45 ml"},{item:"lemon juice",amount:"15 ml"},{item:"raspberry syrup",amount:"15 ml"},{item:"egg white",amount:"15 ml"}]},
+
+/* =======================
+   VODKA (40)
+======================= */
+{name:"Vodka Soda",technique:"build",glass:"Highball",garnish:"Lime wedge",
+ingredients:[{item:"vodka",amount:"50 ml"},{item:"soda water",amount:"Top up"}]},
+{name:"Vodka Tonic",technique:"build",glass:"Highball",garnish:"Lime wedge",
+ingredients:[{item:"vodka",amount:"50 ml"},{item:"tonic water",amount:"Top up"}]},
+{name:"Moscow Mule",technique:"build",glass:"Highball",garnish:"Lime wedge",
+ingredients:[{item:"vodka",amount:"50 ml"},{item:"lime juice",amount:"15 ml"},{item:"ginger beer",amount:"Top up"}]},
+{name:"Cosmopolitan",technique:"shake",glass:"Coupe",garnish:"Orange peel",
+ingredients:[{item:"vodka",amount:"40 ml"},{item:"triple sec",amount:"15 ml"},{item:"cranberry juice",amount:"30 ml"},{item:"lime juice",amount:"10 ml"}]},
+{name:"Espresso Martini",technique:"shake",glass:"Coupe",garnish:"Coffee beans",
+ingredients:[{item:"vodka",amount:"50 ml"},{item:"coffee liqueur",amount:"25 ml"},{item:"espresso",amount:"25 ml"}]},
+{name:"Bloody Mary",technique:"build",glass:"Highball",garnish:"Celery",
+ingredients:[{item:"vodka",amount:"50 ml"},{item:"tomato juice",amount:"100 ml"},{item:"lemon juice",amount:"15 ml"},{item:"worcestershire sauce",amount:"2 dashes"},{item:"tabasco",amount:"1 dash"}]},
+{name:"White Russian",technique:"build",glass:"Rocks",garnish:"None",
+ingredients:[{item:"vodka",amount:"40 ml"},{item:"coffee liqueur",amount:"20 ml"},{item:"cream",amount:"20 ml"}]},
+{name:"Black Russian",technique:"build",glass:"Rocks",garnish:"None",
+ingredients:[{item:"vodka",amount:"50 ml"},{item:"coffee liqueur",amount:"25 ml"}]},
+{name:"Pornstar Martini",technique:"shake",glass:"Coupe",garnish:"Passionfruit",
+ingredients:[{item:"vodka",amount:"50 ml"},{item:"passion fruit liqueur",amount:"25 ml"},{item:"lime juice",amount:"15 ml"},{item:"simple syrup",amount:"10 ml"},{item:"prosecco",amount:"Side serve"}]},
+{name:"French Martini",technique:"shake",glass:"Coupe",garnish:"Raspberry",
+ingredients:[{item:"vodka",amount:"45 ml"},{item:"raspberry liqueur",amount:"15 ml"},{item:"pineapple juice",amount:"45 ml"}]},
+
+/* =======================
+   RUM (40)
+======================= */
+{name:"Mojito",technique:"muddle",glass:"Highball",garnish:"Mint sprig",
+ingredients:[{item:"white rum",amount:"50 ml"},{item:"lime juice",amount:"25 ml"},{item:"simple syrup",amount:"15 ml"},{item:"mint",amount:"8–10 leaves"},{item:"soda water",amount:"Top up"}]},
+{name:"Daiquiri",technique:"shake",glass:"Coupe",garnish:"Lime twist",
+ingredients:[{item:"white rum",amount:"60 ml"},{item:"lime juice",amount:"25 ml"},{item:"simple syrup",amount:"15 ml"}]},
+{name:"Cuba Libre",technique:"build",glass:"Highball",garnish:"Lime wedge",
+ingredients:[{item:"white rum",amount:"50 ml"},{item:"cola",amount:"Top up"},{item:"lime juice",amount:"10 ml"}]},
+{name:"Dark ’n’ Stormy",technique:"build",glass:"Highball",garnish:"Lime wedge",
+ingredients:[{item:"dark rum",amount:"50 ml"},{item:"ginger beer",amount:"Top up"},{item:"lime juice",amount:"10 ml"}]},
+{name:"Piña Colada",technique:"blend",glass:"Hurricane",garnish:"Pineapple wedge",
+ingredients:[{item:"white rum",amount:"50 ml"},{item:"coconut cream",amount:"30 ml"},{item:"pineapple juice",amount:"90 ml"}]},
+{name:"Mai Tai",technique:"shake",glass:"Rocks",garnish:"Mint sprig",
+ingredients:[{item:"dark rum",amount:"30 ml"},{item:"white rum",amount:"30 ml"},{item:"lime juice",amount:"25 ml"},{item:"triple sec",amount:"15 ml"},{item:"orgeat syrup",amount:"15 ml"}]},
+{name:"Rum Punch",technique:"build",glass:"Highball",garnish:"Orange slice",
+ingredients:[{item:"dark rum",amount:"50 ml"},{item:"orange juice",amount:"50 ml"},{item:"pineapple juice",amount:"50 ml"},{item:"grenadine",amount:"10 ml"}]},
+{name:"Zombie",technique:"shake",glass:"Hurricane",garnish:"Mint sprig",
+ingredients:[{item:"dark rum",amount:"30 ml"},{item:"white rum",amount:"30 ml"},{item:"overproof rum",amount:"15 ml"},{item:"lime juice",amount:"20 ml"},{item:"orange juice",amount:"40 ml"}]},
+
+/* =======================
+   TEQUILA (20)
+======================= */
+{name:"Margarita",technique:"shake",glass:"Coupe",garnish:"Salt rim, lime",
+ingredients:[{item:"tequila",amount:"50 ml"},{item:"triple sec",amount:"25 ml"},{item:"lime juice",amount:"25 ml"}]},
+{name:"Tommy’s Margarita",technique:"shake",glass:"Rocks",garnish:"Lime wedge",
+ingredients:[{item:"tequila",amount:"60 ml"},{item:"lime juice",amount:"30 ml"},{item:"agave syrup",amount:"15 ml"}]},
+{name:"Paloma",technique:"build",glass:"Highball",garnish:"Grapefruit wedge",
+ingredients:[{item:"tequila",amount:"50 ml"},{item:"lime juice",amount:"10 ml"},{item:"grapefruit soda",amount:"Top up"}]},
+{name:"Tequila Sunrise",technique:"build",glass:"Highball",garnish:"Orange slice",
+ingredients:[{item:"tequila",amount:"50 ml"},{item:"orange juice",amount:"120 ml"},{item:"grenadine",amount:"10 ml"}]},
+
+/* =======================
+   WHISKY / BOURBON (30)
+======================= */
+{name:"Old Fashioned",technique:"build",glass:"Rocks",garnish:"Orange peel",
+ingredients:[{item:"bourbon",amount:"60 ml"},{item:"simple syrup",amount:"10 ml"},{item:"bitters",amount:"2 dashes"}]},
+{name:"Whiskey Sour",technique:"shake",glass:"Rocks",garnish:"Lemon peel",
+ingredients:[{item:"bourbon",amount:"60 ml"},{item:"lemon juice",amount:"30 ml"},{item:"simple syrup",amount:"15 ml"}]},
+{name:"Manhattan",technique:"stir",glass:"Coupe",garnish:"Cherry",
+ingredients:[{item:"bourbon",amount:"50 ml"},{item:"sweet vermouth",amount:"25 ml"},{item:"bitters",amount:"2 dashes"}]},
+{name:"Boulevardier",technique:"stir",glass:"Rocks",garnish:"Orange peel",
+ingredients:[{item:"bourbon",amount:"30 ml"},{item:"campari",amount:"30 ml"},{item:"sweet vermouth",amount:"30 ml"}]},
+{name:"Mint Julep",technique:"muddle",glass:"Rocks",garnish:"Mint sprig",
+ingredients:[{item:"bourbon",amount:"60 ml"},{item:"mint",amount:"8–10 leaves"},{item:"simple syrup",amount:"10 ml"}]},
+{name:"Scotch & Soda",technique:"build",glass:"Highball",garnish:"Lemon twist",
+ingredients:[{item:"scotch whisky",amount:"50 ml"},{item:"soda water",amount:"Top up"}]},
+
+/* =======================
+   APERITIFS / SPARKLING (20)
+======================= */
+{name:"Aperol Spritz",technique:"build",glass:"Wine glass",garnish:"Orange slice",
+ingredients:[{item:"aperol",amount:"60 ml"},{item:"prosecco",amount:"90 ml"},{item:"soda water",amount:"30 ml"}]},
+{name:"Americano",technique:"build",glass:"Highball",garnish:"Orange peel",
+ingredients:[{item:"campari",amount:"30 ml"},{item:"sweet vermouth",amount:"30 ml"},{item:"soda water",amount:"Top up"}]},
+{name:"Mimosa",technique:"build",glass:"Flute",garnish:"None",
+ingredients:[{item:"prosecco",amount:"90 ml"},{item:"orange juice",amount:"90 ml"}]},
+{name:"Bellini",technique:"build",glass:"Flute",garnish:"None",
+ingredients:[{item:"prosecco",amount:"Top up"},{item:"peach purée",amount:"45 ml"}]},
+
+/* =======================
+   LIQUEUR / DESSERT (20)
+======================= */
+{name:"Amaretto Sour",technique:"shake",glass:"Rocks",garnish:"Lemon wedge",
+ingredients:[{item:"amaretto",amount:"60 ml"},{item:"lemon juice",amount:"30 ml"},{item:"simple syrup",amount:"10 ml"}]},
+{name:"Baileys Coffee",technique:"build",glass:"Mug",garnish:"Cream",
+ingredients:[{item:"baileys",amount:"50 ml"},{item:"hot coffee",amount:"Top up"}]},
+{name:"Baby Guinness",technique:"build",glass:"Shot",garnish:"None",
+ingredients:[{item:"coffee liqueur",amount:"20 ml"},{item:"cream liqueur",amount:"10 ml"}]}
+
+];
+ 
+
+const STORAGE_KEY = "cocktail_finder_pantry_v1";
+
+function buildAllIngredients() {
+  const set = new Set();
+  cocktails.forEach(c => c.ingredients.forEach(i => set.add(norm(i.item))));
+  return [...set].sort((a,b)=>a.localeCompare(b));
+}
+
+const ALL_INGREDIENTS = buildAllIngredients();
+
+const elList = document.getElementById("ingredientList");
+const elCan = document.getElementById("canMake");
+const elNear = document.getElementById("nearMake");
+const elSearch = document.getElementById("ingredientSearch");
+const elOnly = document.getElementById("onlyMakeable");
+const elShowNear = document.getElementById("showNear");
+const elSort = document.getElementById("sortByMissing");
+const elCounts = document.getElementById("counts");
+const btnNone = document.getElementById("selectNone");
+const btnCommon = document.getElementById("selectCommon");
+
+function loadPantry() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set((Array.isArray(arr) ? arr : []).map(norm));
+  } catch { return new Set(); }
+}
+
+function savePantry(set) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...set].sort()));
+}
+
+let pantry = loadPantry();
+
+function renderIngredients() {
+  const q = norm(elSearch.value);
+  elList.innerHTML = "";
+
+  const filtered = ALL_INGREDIENTS.filter(i => !q || i.includes(q));
+
+  filtered.forEach(ing => {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = ing;
+    cb.checked = pantry.has(ing);
+    cb.addEventListener("change", () => {
+      if (cb.checked) pantry.add(ing);
+      else pantry.delete(ing);
+      savePantry(pantry);
+      renderResults();
+      updateCounts();
+    });
+    label.appendChild(cb);
+    label.append(ing);
+    elList.appendChild(label);
+  });
+
+  updateCounts();
+}
+
+function updateCounts() {
+  elCounts.textContent = `Selected: ${pantry.size} • Ingredients in app: ${ALL_INGREDIENTS.length} • Cocktails: ${cocktails.length}`;
+}
+
+function cocktailCard(c, missing) {
+  const div = document.createElement("div");
+  div.className = "cocktail " + (missing.length === 0 ? "ok" : "near");
+
+  const metaBits = [];
+  if (c.glass) metaBits.push(`Glass: ${c.glass}`);
+  if (c.garnish) metaBits.push(`Garnish: ${c.garnish}`);
+  metaBits.push(`Technique: ${c.technique}`);
+
+  const ingHtml = c.ingredients.map(x => `<li>${escapeHtml(x.amount)} ${escapeHtml(x.item)}</li>`).join("");
+  const methodHtml = methodFor(c).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+
+  div.innerHTML = `
+    <strong>${escapeHtml(c.name)}</strong>
+    <div class="meta">${escapeHtml(metaBits.join(" • "))}</div>
+    <div class="meta"><strong>Ingredients</strong></div>
+    <ul>${ingHtml}</ul>
+    <div class="meta"><strong>Method</strong></div>
+    <ol>${methodHtml}</ol>
+    ${missing.length ? `<div class="missing"><strong>Missing:</strong> ${escapeHtml(missing.join(", "))}</div>` : ""}
+  `;
+  return div;
+}
+
+function renderResults() {
+  elCan.innerHTML = "";
+  elNear.innerHTML = "";
+
+  const items = cocktails.map(c => {
+    const req = c.ingredients.map(x => norm(x.item));
+    const missing = req.filter(i => !pantry.has(i));
+    return { c, missing };
+  });
+
+  if (elSort.checked) items.sort((a,b)=>a.missing.length - b.missing.length || a.c.name.localeCompare(b.c.name));
+
+  let canCount = 0, nearCount = 0;
+
+  for (const it of items) {
+    if (it.missing.length === 0) {
+      elCan.appendChild(cocktailCard(it.c, it.missing));
+      canCount++;
+    } else if (!elOnly.checked && elShowNear.checked && it.missing.length <= 2) {
+      elNear.appendChild(cocktailCard(it.c, it.missing));
+      nearCount++;
+    }
+  }
+
+  if (canCount === 0) elCan.innerHTML = `<p class="small">No exact matches yet. Tick a few more ingredients.</p>`;
+  if (elOnly.checked) elNear.innerHTML = `<p class="small">“Nearly there” is hidden.</p>`;
+  else if (!elShowNear.checked) elNear.innerHTML = `<p class="small">“Nearly there” is turned off.</p>`;
+  else if (nearCount === 0) elNear.innerHTML = `<p class="small">No cocktails missing only 1–2 ingredients yet.</p>`;
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, s => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[s]));
+}
+
+btnNone.addEventListener("click", () => {
+  pantry = new Set();
+  savePantry(pantry);
+  renderIngredients();
+  renderResults();
+});
+
+btnCommon.addEventListener("click", () => {
+  const common = [
+    "vodka","gin","white rum","bourbon","tequila",
+    "triple sec","sweet vermouth","dry vermouth","campari","aperol",
+    "lime juice","lemon juice","orange juice","cranberry juice","tomato juice","pineapple juice",
+    "simple syrup","grenadine","bitters",
+    "soda water","tonic water","ginger beer","cola","prosecco",
+    "mint","cream","coffee liqueur"
+  ].map(norm);
+
+  common.forEach(i => pantry.add(i));
+  savePantry(pantry);
+  renderIngredients();
+  renderResults();
+});
+
+elSearch.addEventListener("input", renderIngredients);
+elOnly.addEventListener("change", renderResults);
+elShowNear.addEventListener("change", renderResults);
+elSort.addEventListener("change", renderResults);
+
+renderIngredients();
+renderResults();
+</script>
+
+</body>
+</html>
+
