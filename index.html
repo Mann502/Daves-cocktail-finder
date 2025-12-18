@@ -590,7 +590,18 @@ btnNone.addEventListener("click", () => {
   renderIngredients();
   renderResults();
 });
-  
+
+  function showRandomCocktail() {
+  if (!cocktails.length) return;
+
+  const c = cocktails[Math.floor(Math.random() * cocktails.length)];
+  const required = c.ingredients.map(x => norm(x.item));
+  const missing = required.filter(i => !pantry.has(i));
+
+  elRandom.innerHTML = "";
+  elRandom.appendChild(cocktailCard(c, missing));
+}
+
 btnRandom.addEventListener("click", showRandomCocktail);
 
 
