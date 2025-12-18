@@ -185,6 +185,8 @@
     <label class="pill"><input id="onlyMakeable" type="checkbox" /> Only show “You can make”</label>
     <label class="pill"><input id="showNear" type="checkbox" checked /> Show “Nearly” (missing 1–2)</label>
     <label class="pill"><input id="sortByMissing" type="checkbox" checked /> Sort by fewest missing</label>
+    <label class="pill"><input id="onlyFaves" type="checkbox" /> Favourites only</label>
+
   </div>
 </div>
 
@@ -380,6 +382,24 @@ ingredients:[{item:"coffee liqueur",amount:"20 ml"},{item:"cream liqueur",amount
  
 
 const STORAGE_KEY = "cocktail_finder_pantry_v1";
+const FAV_KEY = "cocktail_finder_favourites_v1";
+
+function loadFaves() {
+  try {
+    const raw = localStorage.getItem(FAV_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set((Array.isArray(arr) ? arr : []).map(String));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFaves(faves) {
+  localStorage.setItem(FAV_KEY, JSON.stringify([...faves]));
+}
+
+let faves = loadFaves();
+
 
 function buildAllIngredients() {
   const set = new Set();
@@ -396,6 +416,7 @@ const elSearch = document.getElementById("ingredientSearch");
 const elOnly = document.getElementById("onlyMakeable");
 const elShowNear = document.getElementById("showNear");
 const elSort = document.getElementById("sortByMissing");
+const elOnlyFaves = document.getElementById("onlyFaves");
 const elCounts = document.getElementById("counts");
 const btnNone = document.getElementById("selectNone");
 const btnCommon = document.getElementById("selectCommon");
@@ -453,47 +474,73 @@ function cocktailCard(c, missing) {
   const div = document.createElement("div");
   div.className = "cocktail " + (missing.length === 0 ? "ok" : "near");
 
+  const isFave = faves.has(c.name);
+
+  // Header row (title + favourite button)
+  const header = document.createElement("div");
+  header.style.display = "flex";
+  header.style.justifyContent = "space-between";
+  header.style.alignItems = "center";
+  header.style.gap = "10px";
+
+  const title = document.createElement("strong");
+  title.textContent = c.name;
+
+  const starBtn = document.createElement("button");
+  starBtn.type = "button";
+  starBtn.textContent = isFave ? "⭐ Saved" : "☆ Favourite";
+  starBtn.setAttribute("aria-label", isFave ? "Remove from favourites" : "Add to favourites");
+  starBtn.style.padding = "8px 12px";
+  starBtn.style.borderRadius = "999px";
+
+  starBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (faves.has(c.name)) {
+      faves.delete(c.name);
+    } else {
+      faves.add(c.name);
+    }
+
+    saveFaves(faves);
+    renderResults();
+  });
+
+  header.appendChild(title);
+  header.appendChild(starBtn);
+
+  // Meta info
   const metaBits = [];
   if (c.glass) metaBits.push(`Glass: ${c.glass}`);
   if (c.garnish) metaBits.push(`Garnish: ${c.garnish}`);
-  metaBits.push(`Technique: ${c.technique}`);
+  if (c.technique) metaBits.push(`Technique: ${c.technique}`);
 
-  const ingHtml = c.ingredients.map(x => `<li>${escapeHtml(x.amount)} ${escapeHtml(x.item)}</li>`).join("");
-  const methodHtml = methodFor(c).map(s => `<li>${escapeHtml(s)}</li>`).join("");
+  // Ingredients + method
+  const ingHtml = (c.ingredients || [])
+    .map(x => `<li>${escapeHtml(x.amount)} ${escapeHtml(x.item)}</li>`)
+    .join("");
 
-  div.innerHTML = `
-    <strong>${escapeHtml(c.name)}</strong>
-    <div class="meta">${escapeHtml(metaBits.join(" • "))}</div>
+  const methodHtml = (methodFor(c) || [])
+    .map(step => `<li>${escapeHtml(step)}</li>`)
+    .join("");
+
+  const body = document.createElement("div");
+  body.innerHTML = `
+    ${metaBits.length ? `<div class="meta">${escapeHtml(metaBits.join(" • "))}</div>` : ""}
     <div class="meta"><strong>Ingredients</strong></div>
-    <ul>${ingHtml}</ul>
+    <ul>${ingHtml || "<li>(No ingredients listed)</li>"}</ul>
     <div class="meta"><strong>Method</strong></div>
-    <ol>${methodHtml}</ol>
-    ${missing.length ? `<div class="missing"><strong>Missing:</strong> ${escapeHtml(missing.join(", "))}</div>` : ""}
+    <ol>${methodHtml || "<li>(No method listed)</li>"}</ol>
+    ${missing && missing.length ? `<div class="missing"><strong>Missing:</strong> ${escapeHtml(missing.join(", "))}</div>` : ""}
   `;
+
+  // Assemble card
+  div.innerHTML = "";
+  div.appendChild(header);
+  div.appendChild(body);
+
   return div;
-}
-function showRandomCocktail() {
-  if (!cocktails.length) return;
-
-  const c = cocktails[Math.floor(Math.random() * cocktails.length)];
-
-  const required = c.ingredients.map(x => norm(x.item));
-  const missing = required.filter(i => !pantry.has(i));
-
-  elRandom.innerHTML = "";
-
-  const card = cocktailCard(c, missing);
-
-  // Add a Roll Again button at the top of the card
-  const rollBtn = document.createElement("button");
-  rollBtn.textContent = "🎲 Roll again";
-  rollBtn.style.marginBottom = "10px";
-  rollBtn.addEventListener("click", showRandomCocktail);
-
-  card.prepend(rollBtn);
-  elRandom.appendChild(card);
-
-  elRandom.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 
@@ -563,6 +610,7 @@ elSearch.addEventListener("input", renderIngredients);
 elOnly.addEventListener("change", renderResults);
 elShowNear.addEventListener("change", renderResults);
 elSort.addEventListener("change", renderResults);
+elOnlyFaves.addEventListener("change", renderResults);
 
 renderIngredients();
 renderResults();
