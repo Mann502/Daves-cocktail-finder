@@ -472,21 +472,27 @@ function cocktailCard(c, missing) {
   `;
   return div;
 }
-  function showRandomCocktail() {
+function showRandomCocktail() {
   if (!cocktails.length) return;
 
-  // Pick a random cocktail
   const c = cocktails[Math.floor(Math.random() * cocktails.length)];
 
-  // Work out what's missing based on your current pantry
   const required = c.ingredients.map(x => norm(x.item));
   const missing = required.filter(i => !pantry.has(i));
 
-  // Render a full recipe card
   elRandom.innerHTML = "";
-  elRandom.appendChild(cocktailCard(c, missing));
 
-  // Optional: scroll it into view so it feels app-like
+  const card = cocktailCard(c, missing);
+
+  // Add a Roll Again button at the top of the card
+  const rollBtn = document.createElement("button");
+  rollBtn.textContent = "🎲 Roll again";
+  rollBtn.style.marginBottom = "10px";
+  rollBtn.addEventListener("click", showRandomCocktail);
+
+  card.prepend(rollBtn);
+  elRandom.appendChild(card);
+
   elRandom.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
