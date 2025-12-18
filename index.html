@@ -548,11 +548,15 @@ function renderResults() {
   elCan.innerHTML = "";
   elNear.innerHTML = "";
 
-  const items = cocktails.map(c => {
+  let items = cocktails.map(c => {
     const req = c.ingredients.map(x => norm(x.item));
     const missing = req.filter(i => !pantry.has(i));
     return { c, missing };
   });
+  if (elOnlyFaves.checked) {
+  items = items.filter(it => faves.has(it.c.name));
+}
+
 
   if (elSort.checked) items.sort((a,b)=>a.missing.length - b.missing.length || a.c.name.localeCompare(b.c.name));
 
